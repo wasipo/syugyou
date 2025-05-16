@@ -150,14 +150,14 @@ test('syncWithoutDetaching replaces all pivot rows with the given set', function
 
     // when
     $project->members()->syncWithoutDetaching([
-        $member2->id => ['role' => 'Lead'],
+        $member2->id => ['role' => null],
     ]);
     
     // then
     // 変化なしだけど、論理削除のため、有効レコード（NULLかどうか）を確認する必要がある
     $alive = $project->members->filter(fn ($m) => $m->pivot->deleted_at === null);
     expect($alive->count())->toBe(3)
-        ->and($alive->get(1)->pivot->role)->toBe('Lead')
+        ->and($alive->get(1)->pivot->role)->toBe(null)
         ->and($alive->get(1)->id)->toBe($member2->id)
         ->and($alive->get(1)->name)->toBe('Bravo');
 });
