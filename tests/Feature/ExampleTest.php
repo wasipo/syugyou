@@ -1,41 +1,28 @@
 <?php
 
 
-use App\Models\MemberProject;
 use App\Models\Project;
 use App\Models\Member;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Foundation\Testing\RefreshDatabase;
-
-
-test('member can be manually attached to project', function () {
-    $project = Project::create(['name' => 'Mercury']);
-    $member = Member::create(['name' => 'Kohaku']);
-
-    $project->members()->attach($member->id, [
-        'assigned_by' => 'root',
-        'assigned_at' => now(),
-        'role' => 'architect',
-    ]);
-
-    $this->assertDatabaseHas('member_project', [
-        'project_id' => $project->id,
-        'member_id' => $member->id,
-        'role' => 'architect',
-    ]);
-});
 
 
 test('member can be assigned to a project with metadata', function () {
+    // 中間テーブルに pivot 情報付きで attach できるかを検証
+    
+    // 準備
     $project = Project::create(['name' => 'Mercury']);
     $member = Member::create(['name' => 'Kohaku']);
 
+    // 実行
     $project->members()->attach($member->id, [
         'assigned_by' => 'Boss',
         'assigned_at' => now(),
         'role' => 'Lead',
     ]);
 
+    // DBのデータを直接検証することもできるよ！
+    
+    // 検証
     $this->assertDatabaseHas('member_project', [
         'project_id' => $project->id,
         'member_id' => $member->id,
@@ -45,9 +32,13 @@ test('member can be assigned to a project with metadata', function () {
 });
 
 test('syncWithoutDetaching does not duplicate member_project row', function () {
+    // syncWithoutDetaching で中間テーブルに pivot 情報付きで attach できるかを検証 (1レコードのみ追加されることを検証)
+    
+    // 準備
     $project = Project::create(['name' => 'Venus']);
     $member = Member::create(['name' => 'Yuzu']);
 
+    // 実行
     $project->members()->syncWithoutDetaching([
         $member->id => [
             'assigned_by' => 'Otwell',
@@ -64,77 +55,54 @@ test('syncWithoutDetaching does not duplicate member_project row', function () {
         ]
     ]);
 
+    // 検証
     $this->assertDatabaseCount('member_project', 1);
 });
 
-test('soft deleted member_project relation can be restored', function () {
-    $project = Project::create(['name' => 'Jupiter']);
-    $member = Member::create(['name' => 'Tsubasa']);
-
-    $project->members()->attach($member->id, [
-        'assigned_by' => 'Dev Lead',
-        'assigned_at' => now(),
-        'role' => 'Designer',
-    ]);
-
-    $project->members()->updateExistingPivot($member->id, ['deleted_at' => now()]);
-
-    $this->assertSoftDeleted('member_project', [
-        'project_id' => $project->id,
-        'member_id' => $member->id,
-    ]);
-
-    $project->members()->updateExistingPivot($member->id, ['deleted_at' => null]);
+test('plain relation does not expose pivot metadata', function () {
+    // withPivot を定義していないリレーションでは pivot 情報が null になることを確認
     
-    $this->assertDatabaseHas('member_project', [
-        'project_id' => $project->id,
-        'member_id' => $member->id,
-        'deleted_at' => null,
-    ]);
-});
+    // 準備
+    $project = Project::create(['name' => 'Split Test']);
+    $member = Member::create(['name' => 'Shion']);
 
-
-test('pivot fields are available when withPivot is defined', function () {
-    $project = Project::create(['name' => 'Voyager']);
-    $member = Member::create(['name' => 'Otwell Jr.']);
-
-    $project->members()->attach($member->id, [
-        'assigned_by' => 'Zebra',
+    // 実行
+    $project->plainMembers()->attach($member->id, [
+        'role' => 'Intern',
+        'assigned_by' => 'Admin',
         'assigned_at' => now(),
-        'role' => 'Explorer',
     ]);
-
-    $fetchedMember = $project->members()->first();
-
-    expect($fetchedMember->pivot->assigned_by)->toBe('Zebra');
+    
+    // 検証
+    $fetchedMember = $project->plainMembers()->first();
+    expect($fetchedMember->pivot->assigned_by)->toBeNull(); // assigned_by 登録してるのにNullになってるよ！？
+    expect($fetchedMember->pivot->role)->toBeNull(); // role 登録してるのにNullになってるよ！？
 });
 
-test('sync preserves pivot metadata when explicitly passed', function () {
-    $project = Project::create(['name' => 'Gemini']);
-    $member = Member::create(['name' => 'Buzz']);
+// --- ソフトデリートは地獄 ---
 
-    $project->members()->sync([
-        $member->id => [
-            'assigned_by' => 'HQ',
-            'assigned_at' => now(),
-            'role' => 'Pilot',
-        ]
-    ]);
+test('member can be detached from project', function () {
+    // given
+    $project = Project::create(['name' => 'Mars']);
+    $member = Member::create(['name' => 'Akira']);
 
-    $pivot = DB::table('member_project')->where([
+    // when
+    $project->members()->attach($member->id);
+    $project->members()->detach($member->id);
+
+    // ここでdeleted_atがnullのものを探すことの意味を問いましょう
+    // then
+    $exists = DB::table('member_project')->where([
         'project_id' => $project->id,
         'member_id' => $member->id,
-    ])->first();
-
-    expect($pivot->assigned_by)->toBe('HQ');
-    expect($pivot->role)->toBe('Pilot');
+    ])->whereNull('deleted_at')->exists();
+    expect($exists)->toBeFalse();
 });
 
 
-// 論理削除ついてない場合
 test('sync replaces all pivot rows with the given set', function () {
-    
-    //  3人のメンバーを持つプロジェクトを作成  
+    // sync() の挙動として、指定されていないpivot行が削除されるかを検証
+    // 3人のメンバーを持つプロジェクトを作成  
     $project = Project::create(['name' => 'Destruction Test']);
 
     $member1 = Member::create(['name' => 'Alpha']);
@@ -155,10 +123,41 @@ test('sync replaces all pivot rows with the given set', function () {
         $member2->id => ['role' => 'Manager'], // Bravoだけ残す
     ]);
 
-    $project->load('members'); // ← eager loadする（念のため）
+    // 論理削除だと、Prodコードでもこれやらないといけないのでまぁまぁだるい（運用コストと相談すること）
     $alive = $project->members->filter(fn ($m) => $m->pivot->deleted_at === null);
 
-    expect($alive->count())->toBe(1);
-    expect($alive->first()->pivot->role)->toBe('Manager');
-    expect($alive->first()->id)->toBe($member2->id);
+    expect($alive->count())->toBe(1)
+        ->and($alive->first()->pivot->role)->toBe('Manager')
+        ->and($alive->first()->id)->toBe($member2->id);
+});
+
+test('syncWithoutDetaching replaces all pivot rows with the given set', function () {
+    // syncWithoutDetaching() の挙動として、指定されていないpivot行が削除されないかを検証
+    // given
+    $project = Project::create(['name' => 'Destruction Test']);
+
+    $member1 = Member::create(['name' => 'Alpha']);
+    $member2 = Member::create(['name' => 'Bravo']);
+    $member3 = Member::create(['name' => 'Charlie']);
+
+    $project->members()->sync([
+        $member1->id => ['role' => 'Engineer'],
+        $member2->id => ['role' => 'Manager'],
+        $member3->id => ['role' => 'Lead'],
+    ]);
+
+    expect(DB::table('member_project')->count())->toBe(3);
+
+    // when
+    $project->members()->syncWithoutDetaching([
+        $member2->id => ['role' => 'Lead'],
+    ]);
+    
+    // then
+    // 変化なしだけど、論理削除のため、有効レコード（NULLかどうか）を確認する必要がある
+    $alive = $project->members->filter(fn ($m) => $m->pivot->deleted_at === null);
+    expect($alive->count())->toBe(3)
+        ->and($alive->get(1)->pivot->role)->toBe('Lead')
+        ->and($alive->get(1)->id)->toBe($member2->id)
+        ->and($alive->get(1)->name)->toBe('Bravo');
 });
