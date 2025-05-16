@@ -2,9 +2,7 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-
 
 
 class Project extends Model
@@ -17,5 +15,12 @@ class Project extends Model
             ->withPivot(['assigned_by', 'assigned_at', 'role', 'deleted_at'])
             ->withTimestamps()
             ->using(MemberProject::class);
+    }
+    
+    // withPivotなし
+    public function plainMembers()
+    {
+        return $this->belongsToMany(Member::class)
+            ->withTimestamps();
     }
 }
