@@ -12,7 +12,7 @@ test('map + filter + values to transform and filter objects', function () {
         ->map(fn ($u) => $u->name)
         ->values();
 
-    dump($names->all());
+
 
     expect($names->all())->toEqual(['kai', 'asuka']);
 });
@@ -36,7 +36,7 @@ test('intersectByKeys + mapWithKeys for filtered keyed output', function () {
             'name' => $u->name,
         ]]);
     
-    dump($filtered->all());
+
 
     expect($filtered->keys()->all())->toEqual([2, 3]);
     expect($filtered[2]->name)->toBe('rei');
@@ -69,7 +69,7 @@ test('groupBy + sortBy + keyBy to structure users by role', function () {
             ->keyBy('id')
         );
 
-    dump($grouped->all());
+
     
     expect($grouped['user']->keys()->all())->toEqual([3, 2]); // asuka → rei
     expect($grouped['admin'][1]->name)->toBe('kai');
