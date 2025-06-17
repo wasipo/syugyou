@@ -43,15 +43,15 @@ class TestUser extends Model
 
     // Laravel 12.5 - #[Scope] 属性を使用
     #[Scope]
-    protected function active(Builder $query): void
+    protected function active(Builder $query): Builder
     {
-        $query->where('is_active', true);
+        return $query->where('is_active', true);
     }
 
     #[Scope]
-    protected function byStatus(Builder $query, TestUserStatus $status): void
+    protected function byStatus(Builder $query, TestUserStatus $status): Builder
     {
-        $query->where('status', $status);
+        return $query->where('status', $status);
     }
 
     // Laravel 12.6 - fillAndInsert
