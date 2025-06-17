@@ -13,6 +13,13 @@ use Illuminate\Support\Number;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Uri;
+use Tests\Models\TestUser;
+use Tests\Enums\TestUserStatus;
+use Tests\ValueObjects\TestUserMetadata;
+use Tests\Resources\TestUserResource;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
 
 uses(Tests\TestCase::class);
 
@@ -180,22 +187,108 @@ it('文字列の暗号化・復号ヘルパーを使えること', function () {
 
 // Laravel 12.5 - #[Scope] 属性 - scopeプレフィックス不要のスコープ定義
 it('ローカルスコープの属性記法を使えること', function () {
-    // Eloquentモデルのスコープテストは実際のモデルクラスが必要なのでスキップ
-    $this->markTestSkipped('Laravel 12.5のローカルスコープ属性は実際のモデルクラスが必要');
+    // インメモリテーブルを作成
+    Schema::create('test_users', function (Blueprint $table) {
+        $table->id();
+        $table->string('name');
+        $table->string('email');
+        $table->boolean('is_active')->default(true);
+        $table->string('status')->default('active');
+        $table->json('metadata')->nullable();
+        $table->string('profile_url')->nullable();
+        $table->timestamps();
+    });
+
+    // テストデータを挿入
+    TestUser::create([
+        'name' => 'Active User',
+        'email' => 'active@example.com',
+        'is_active' => true,
+        'status' => TestUserStatus::Active
+    ]);
+    TestUser::create([
+        'name' => 'Inactive User', 
+        'email' => 'inactive@example.com',
+        'is_active' => false,
+        'status' => TestUserStatus::Inactive
+    ]);
+
+    // #[Scope]属性で定義したスコープが動作することを確認
+    $activeUsers = TestUser::active()->get();
+    expect($activeUsers)->toHaveCount(1);
+    expect($activeUsers->first()->name)->toBe('Active User');
+
+    // パラメータ付きスコープ
+    $inactiveUsers = TestUser::byStatus(TestUserStatus::Inactive)->get();
+    expect($inactiveUsers)->toHaveCount(1);
+    expect($inactiveUsers->first()->name)->toBe('Inactive User');
 });
 
 
 // Laravel 12.6 - Model::fillAndInsert - 複数モデルの一括挿入を高速化
 it('複数モデルの一括登録ができること', function () {
-    // Model::fillAndInsertはEloquentモデルが必要なのでスキップ
-    $this->markTestSkipped('Laravel 12.6のfillAndInsertは実際のモデルクラスが必要');
+    // インメモリテーブルを作成
+    if (!Schema::hasTable('test_users')) {
+        Schema::create('test_users', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('email');
+            $table->boolean('is_active')->default(true);
+            $table->string('status')->default('active');
+            $table->json('metadata')->nullable();
+            $table->string('profile_url')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    // 複数レコードの配列を用意（一部欠けた項目やEnum型を含む）
+    $records = [
+        ['name' => 'User 1', 'email' => 'user1@example.com', 'status' => 'active'],
+        ['name' => 'User 2', 'email' => 'user2@example.com', 'status' => TestUserStatus::Inactive],
+        ['name' => 'User 3', 'email' => 'user3@example.com', 'is_active' => false],
+    ];
+    
+    // fillAndInsertで一括キャスト・設定など行いつつ挿入
+    TestUser::fillAndInsert($records);
+    
+    // 挿入されたレコードを検証
+    expect(TestUser::count())->toBeGreaterThanOrEqual(3);
+    $lastUsers = TestUser::latest('id')->take(3)->get();
+    expect($lastUsers->pluck('name'))->toContain('User 1', 'User 2', 'User 3');
 });
 
 
 // Laravel 12.7 - toResource/toResourceCollection - APIリソース変換を簡潔に
 it('モデルをリソースに変換できること', function () {
-    // toResource/toResourceCollectionはEloquentモデルが必要なのでスキップ
-    $this->markTestSkipped('Laravel 12.7のtoResourceは実際のモデルクラスが必要');
+    // インメモリテーブルを作成
+    if (!Schema::hasTable('test_users')) {
+        Schema::create('test_users', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('email');
+            $table->boolean('is_active')->default(true);
+            $table->string('status')->default('active');
+            $table->json('metadata')->nullable();
+            $table->string('profile_url')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    $user = TestUser::create([
+        'name' => 'Test User',
+        'email' => 'test@example.com',
+        'is_active' => true,
+        'status' => TestUserStatus::Active
+    ]);
+    
+    // 単一モデルをリソース化
+    $resInstance = $user->toResource(TestUserResource::class);
+    expect($resInstance)->toBeInstanceOf(TestUserResource::class);
+
+    $users = TestUser::all();
+    // コレクションをリソースコレクションに変換
+    $resCollection = TestUserResource::collection($users);
+    expect($resCollection->collection)->toHaveCount(1);
 });
 
 
@@ -258,7 +351,34 @@ it('配列キー存在チェックの in_array_keys ルールを使えること'
 
 // Laravel 12.17 - AsUri キャスト - URL文字列をUriオブジェクトとして扱う
 it('URL オブジェクトへのモデルキャストができること', function () {
-    // AsUriキャストはEloquentモデルが必要なのでスキップ
-    $this->markTestSkipped('Laravel 12.17のAsUriキャストは実際のモデルクラスが必要');
+    // インメモリテーブルを作成
+    if (!Schema::hasTable('test_users')) {
+        Schema::create('test_users', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('email');
+            $table->boolean('is_active')->default(true);
+            $table->string('status')->default('active');
+            $table->json('metadata')->nullable();
+            $table->string('profile_url')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    $user = TestUser::create([
+        'name' => 'Test User',
+        'email' => 'test@example.com', 
+        'profile_url' => 'https://example.com:8080/path?foo=bar'
+    ]);
+    
+    // Eloquentモデル上で Uri インスタンスとして扱える
+    expect($user->profile_url)->toBeInstanceOf(Uri::class);
+    expect($user->profile_url->port())->toBe(8080);
+    
+    // Uriオブジェクトを直接代入しても文字列へキャストされて保存される
+    $user->profile_url = new Uri('https://laravel.com/docs');
+    $user->save();
+    $raw = $user->getAttributes()['profile_url'];
+    expect($raw)->toBe('https://laravel.com/docs');
 });
 
