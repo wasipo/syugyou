@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\Casts\Json;
+use Illuminate\Queue\CallQueuedClosure;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\DB;
@@ -21,12 +23,31 @@ use Tests\Resources\TestUserResource;
 use Tests\Middleware\TestAddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
 
 uses(Tests\TestCase::class);
 
 beforeEach(function () {
-    // マイグレーションを実行してテーブルを作成
-    $this->artisan('migrate:fresh');
+    // テスト用のテーブルを作成
+    Schema::create('test_users', function (Blueprint $table) {
+        $table->id();
+        $table->string('name');
+        $table->string('email')->unique();
+        $table->boolean('is_active')->default(true);
+        $table->string('status')->default('active');
+        $table->json('metadata')->nullable();
+        $table->string('profile_url')->nullable();
+        $table->timestamps();
+    });
+    
+    Schema::create('test_posts', function (Blueprint $table) {
+        $table->id();
+        $table->string('title');
+        $table->text('content');
+        $table->foreignId('test_user_id')->constrained('test_users');
+        $table->timestamps();
+    });
     
     // キャッシュとコンテキストをクリア
     Cache::flush();
@@ -34,8 +55,9 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-    // マイグレーションをロールバック
-    $this->artisan('migrate:rollback');
+    // テーブルをドロップ
+    Schema::dropIfExists('test_posts');
+    Schema::dropIfExists('test_users');
     
     // キャッシュとコンテキストをクリア
     Cache::flush();
@@ -122,74 +144,6 @@ it('pipe メソッドで条件付きクエリを構築できること', function
 
     expect($query->toSql())->toContain('where')
         ->and($query->toSql())->toContain('limit');
-});
-
-
-// Laravel 12.9 - Cache::memo() - 同一リクエスト内でキャッシュ値をメモ化
-it('メモ化キャッシュドライバで重複フェッチを回避できること', function () {
-    // テスト用に配列ストアを利用
-    config(['cache.default' => 'array']);
-    Cache::put('token', 'ABC', now()->addMinutes(5));
-
-    // 通常のCache::getでは毎回ストレージアクセス
-    $a = Cache::get('token');
-    Cache::forget('token');        // 一旦削除
-    $b = Cache::get('token');     // -> null（削除済みのため）
-
-    // memo化したCache::memo()->getなら、最初の取得結果を記憶
-    Cache::put('token', 'ABC', now()->addMinutes(5));
-    $x = Cache::memo()->get('token');  // ストレージから取得
-    Cache::forget('token');            // ストレージから削除
-    $y = Cache::memo()->get('token');  // メモリ上の値 "ABC" を返す（再フェッチなし）
-
-    expect($a)->toBe('ABC');
-    expect($b)->toBeNull();
-    expect($x)->toBe('ABC');
-    expect($y)->toBe('ABC');  // 通常ならnullだがメモ化で値保持
-});
-
-
-// Laravel 12.11 - Arr::string/integer/array 等 - 配列から型安全に値取得
-it('型付き配列ゲッターで型を厳密にチェックできること', function () {
-    
-    $data = ['name' => 'Joe', 'age' => 30, 'flags' => ['active']];
-    
-    // 正しい型の取得
-    expect(Arr::string($data, 'name'))->toBe('Joe');
-    expect(Arr::integer($data, 'age'))->toBe(30);
-    expect(Arr::array($data, 'flags'))->toBe(['active']);
-
-    // 型不一致の場合は例外を送出
-    expect(fn() => Arr::array($data, 'name'))->toThrow(\InvalidArgumentException::class);
-});
-
-
-// Laravel 12.14 - Arr::from() - Collection等を統一的に配列変換
-it('Arr::from で様々な型を配列に変換できること', function () {
-    
-    $collection = collect(['framework' => 'Laravel']);
-    expect(Arr::from($collection))->toBe(['framework' => 'Laravel']);
-
-    // 通常の配列はそのまま返される
-    $array = ['key' => 'value'];
-    expect(Arr::from($array))->toBe(['key' => 'value']);
-});
-
-
-// Laravel 12.15 - Number::parse/parseFloat - ロケール別数値フォーマット対応
-it('ロケール対応の数値パースができること', function () {
-    
-    // 英語ロケール（デフォルト）
-    $numEn = '1,234.56';
-    expect(Number::parseFloat($numEn))->toBe(1234.56);
-    
-    // ドイツロケール（ピリオドが千区切り、カンマが小数点）
-    $numDe = '1.234,56';
-    if (extension_loaded('intl')) {
-        expect(Number::parseFloat($numDe, locale: 'de'))->toBe(1234.56);
-    } else {
-        $this->markTestSkipped('Intl extension is not loaded');
-    }
 });
 
 
@@ -296,6 +250,30 @@ it('関連の自動ロードができること', function () {
 });
 
 
+// Laravel 12.9 - Cache::memo() - 同一リクエスト内でキャッシュ値をメモ化
+it('メモ化キャッシュドライバで重複フェッチを回避できること', function () {
+    // テスト用に配列ストアを利用
+    config(['cache.default' => 'array']);
+    Cache::put('token', 'ABC', now()->addMinutes(5));
+
+    // 通常のCache::getでは毎回ストレージアクセス
+    $a = Cache::get('token');
+    Cache::forget('token');        // 一旦削除
+    $b = Cache::get('token');     // -> null（削除済みのため）
+
+    // memo化したCache::memo()->getなら、最初の取得結果を記憶
+    Cache::put('token', 'ABC', now()->addMinutes(5));
+    $x = Cache::memo()->get('token');  // ストレージから取得
+    Cache::forget('token');            // ストレージから削除
+    $y = Cache::memo()->get('token');  // メモリ上の値 "ABC" を返す（再フェッチなし）
+
+    expect($a)->toBe('ABC');
+    expect($b)->toBeNull();
+    expect($x)->toBe('ABC');
+    expect($y)->toBe('ABC');  // 通常ならnullだがメモ化で値保持
+});
+
+
 // Laravel 12.10 - AsCollection::of - JSON配列を値オブジェクトコレクションに
 it('コレクションキャストで値オブジェクトマッピングができること', function () {
     $user = TestUser::create([
@@ -309,7 +287,7 @@ it('コレクションキャストで値オブジェクトマッピングがで�
     ]);
     
     // metadata属性がTestUserMetadataクラスのコレクションに変換されていることを検証
-    expect($user->metadata)->toBeInstanceOf(\Illuminate\Support\Collection::class);
+    expect($user->metadata)->toBeInstanceOf(Collection::class);
     expect($user->metadata)->toHaveCount(3);
     expect($user->metadata->first())->toBeInstanceOf(TestUserMetadata::class);
     expect($user->metadata->first()->key)->toBe('theme');
@@ -318,6 +296,21 @@ it('コレクションキャストで値オブジェクトマッピングがで�
     // 値オブジェクトのメソッドが使えることを確認
     $themeMetadata = $user->metadata->first();
     expect($themeMetadata->toArray())->toBe(['key' => 'theme', 'value' => 'dark']);
+});
+
+
+// Laravel 12.11 - Arr::string/integer/array 等 - 配列から型安全に値取得
+it('型付き配列ゲッターで型を厳密にチェックできること', function () {
+    
+    $data = ['name' => 'Joe', 'age' => 30, 'flags' => ['active']];
+    
+    // 正しい型の取得
+    expect(Arr::string($data, 'name'))->toBe('Joe');
+    expect(Arr::integer($data, 'age'))->toBe(30);
+    expect(Arr::array($data, 'flags'))->toBe(['active']);
+
+    // 型不一致の場合は例外を送出
+    expect(fn() => Arr::array($data, 'name'))->toThrow(\InvalidArgumentException::class);
 });
 
 
@@ -364,7 +357,36 @@ it('キュー投入クロージャに名前を付けられること', function (
 
     // バッチ名やHorizon上で名前が識別できることを確認
     // ジョブがディスパッチされたことを確認
-    Bus::assertDispatchedWithoutChain(\Illuminate\Queue\CallQueuedClosure::class);
+    Bus::assertDispatchedWithoutChain(CallQueuedClosure::class);
+});
+
+
+// Laravel 12.14 - Arr::from() - Collection等を統一的に配列変換
+it('Arr::from で様々な型を配列に変換できること', function () {
+    
+    $collection = collect(['framework' => 'Laravel']);
+    expect(Arr::from($collection))->toBe(['framework' => 'Laravel']);
+
+    // 通常の配列はそのまま返される
+    $array = ['key' => 'value'];
+    expect(Arr::from($array))->toBe(['key' => 'value']);
+});
+
+
+// Laravel 12.15 - Number::parse/parseFloat - ロケール別数値フォーマット対応
+it('ロケール対応の数値パースができること', function () {
+    
+    // 英語ロケール（デフォルト）
+    $numEn = '1,234.56';
+    expect(Number::parseFloat($numEn))->toBe(1234.56);
+    
+    // ドイツロケール（ピリオドが千区切り、カンマが小数点）
+    $numDe = '1.234,56';
+    if (extension_loaded('intl')) {
+        expect(Number::parseFloat($numDe, locale: 'de'))->toBe(1234.56);
+    } else {
+        $this->markTestSkipped('Intl extension is not loaded');
+    }
 });
 
 
@@ -435,4 +457,3 @@ it('Fluent文字列での暗号化・復号チェーンができること', func
     // 暗号化された文字列は元の文字列と異なることを確認
     expect($encrypted->toString())->not->toBe('secret');
 });
-
