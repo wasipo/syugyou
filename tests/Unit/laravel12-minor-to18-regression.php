@@ -164,12 +164,12 @@ it('ローカルスコープの属性記法を使えること', function () {
     ]);
 
     // #[Scope]属性で定義したスコープが動作することを確認
-    $activeUsers = TestUser::active()->get();
+    $activeUsers = TestUser::query()->active()->get();
     expect($activeUsers)->toHaveCount(1);
     expect($activeUsers->first()->name)->toBe('Active User');
 
     // パラメータ付きスコープ
-    $inactiveUsers = TestUser::byStatus(TestUserStatus::Inactive)->get();
+    $inactiveUsers = TestUser::query()->byStatus(TestUserStatus::Inactive)->get();
     expect($inactiveUsers)->toHaveCount(1);
     expect($inactiveUsers->first()->name)->toBe('Inactive User');
 });

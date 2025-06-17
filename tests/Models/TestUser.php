@@ -65,7 +65,7 @@ class TestUser extends Model
     // Laravel 12.7 - toResource
     public function toResource(string $resourceClass = null): JsonResource
     {
-        $resourceClass = $resourceClass ?: Tests\Resources\TestUserResource::class;
+        $resourceClass = $resourceClass ?: \Tests\Resources\TestUserResource::class;
         return new $resourceClass($this);
     }
 
