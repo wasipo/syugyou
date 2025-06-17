@@ -19,21 +19,14 @@ use Tests\Enums\TestUserStatus;
 use Tests\ValueObjects\TestUserMetadata;
 use Tests\Resources\TestUserResource;
 use Tests\Middleware\TestAddLinkHeadersForPreloadedAssets;
-use Illuminate\Support\Facades\Schema;
-use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
 uses(Tests\TestCase::class);
 
 beforeEach(function () {
-    // 各テスト前にテーブルをドロップして初期化
-    if (Schema::hasTable('test_users')) {
-        Schema::dropIfExists('test_users');
-    }
-    if (Schema::hasTable('test_posts')) {
-        Schema::dropIfExists('test_posts');
-    }
+    // マイグレーションを実行してテーブルを作成
+    $this->artisan('migrate:fresh');
     
     // キャッシュとコンテキストをクリア
     Cache::flush();
@@ -41,9 +34,8 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-    // 各テスト後にテーブルをドロップしてクリーンアップ
-    Schema::dropIfExists('test_posts');
-    Schema::dropIfExists('test_users');
+    // マイグレーションをロールバック
+    $this->artisan('migrate:rollback');
     
     // キャッシュとコンテキストをクリア
     Cache::flush();
@@ -201,34 +193,8 @@ it('ロケール対応の数値パースができること', function () {
 });
 
 
-// Laravel 12.18 - Str::encrypt/decrypt - 文字列処理チェーンで暗号化
-it('文字列の暗号化・復号ヘルパーを使えること', function () {
-    // アプリケーションキーを一時的に設定
-    config(['app.key' => 'base64:' . base64_encode(random_bytes(32))]);
-    
-    $original = 'secret-api-token';
-    $encrypted = Str::of($original)->encrypt();   // 暗号化
-    expect($encrypted->toString())->not->toBe($original);
-
-    $decrypted = $encrypted->decrypt();          // 復号化
-    expect($decrypted->toString())->toBe($original);
-});
-
-
 // Laravel 12.5 - #[Scope] 属性 - scopeプレフィックス不要のスコープ定義
 it('ローカルスコープの属性記法を使えること', function () {
-    // インメモリテーブルを作成
-    Schema::create('test_users', function (Blueprint $table) {
-        $table->id();
-        $table->string('name');
-        $table->string('email');
-        $table->boolean('is_active')->default(true);
-        $table->string('status')->default('active');
-        $table->json('metadata')->nullable();
-        $table->string('profile_url')->nullable();
-        $table->timestamps();
-    });
-
     // テストデータを挿入
     TestUser::create([
         'name' => 'Active User',
@@ -257,18 +223,6 @@ it('ローカルスコープの属性記法を使えること', function () {
 
 // Laravel 12.6 - Model::fillAndInsert - 複数モデルの一括挿入を高速化
 it('複数モデルの一括登録ができること', function () {
-    // インメモリテーブルを作成
-    Schema::create('test_users', function (Blueprint $table) {
-        $table->id();
-        $table->string('name');
-        $table->string('email');
-        $table->boolean('is_active')->default(true);
-        $table->string('status')->default('active');
-        $table->json('metadata')->nullable();
-        $table->string('profile_url')->nullable();
-        $table->timestamps();
-    });
-
     // 複数レコードの配列を用意（一部欠けた項目やEnum型を含む）
     $records = [
         ['name' => 'User 1', 'email' => 'user1@example.com', 'status' => 'active'],
@@ -288,18 +242,6 @@ it('複数モデルの一括登録ができること', function () {
 
 // Laravel 12.7 - toResource/toResourceCollection - APIリソース変換を簡潔に
 it('モデルをリソースに変換できること', function () {
-    // インメモリテーブルを作成
-    Schema::create('test_users', function (Blueprint $table) {
-        $table->id();
-        $table->string('name');
-        $table->string('email');
-        $table->boolean('is_active')->default(true);
-        $table->string('status')->default('active');
-        $table->json('metadata')->nullable();
-        $table->string('profile_url')->nullable();
-        $table->timestamps();
-    });
-
     $user = TestUser::create([
         'name' => 'Test User',
         'email' => 'test@example.com',
@@ -320,26 +262,6 @@ it('モデルをリソースに変換できること', function () {
 
 // Laravel 12.8 - withRelationshipAutoloading - N+1問題を自動解決
 it('関連の自動ロードができること', function () {
-    // インメモリテーブルを作成
-    Schema::create('test_users', function (Blueprint $table) {
-        $table->id();
-        $table->string('name');
-        $table->string('email');
-        $table->boolean('is_active')->default(true);
-        $table->string('status')->default('active');
-        $table->json('metadata')->nullable();
-        $table->string('profile_url')->nullable();
-        $table->timestamps();
-    });
-    
-    Schema::create('test_posts', function (Blueprint $table) {
-        $table->id();
-        $table->string('title');
-        $table->text('content');
-        $table->foreignId('test_user_id')->constrained();
-        $table->timestamps();
-    });
-
     // テスト用に関連するUserとPostを用意
     $user1 = TestUser::create(['name' => 'User 1', 'email' => 'user1@example.com']);
     $user2 = TestUser::create(['name' => 'User 2', 'email' => 'user2@example.com']);
@@ -376,18 +298,6 @@ it('関連の自動ロードができること', function () {
 
 // Laravel 12.10 - AsCollection::of - JSON配列を値オブジェクトコレクションに
 it('コレクションキャストで値オブジェクトマッピングができること', function () {
-    // インメモリテーブルを作成
-    Schema::create('test_users', function (Blueprint $table) {
-        $table->id();
-        $table->string('name');
-        $table->string('email');
-        $table->boolean('is_active')->default(true);
-        $table->string('status')->default('active');
-        $table->json('metadata')->nullable();
-        $table->string('profile_url')->nullable();
-        $table->timestamps();
-    });
-
     $user = TestUser::create([
         'name' => 'Test User',
         'email' => 'test@example.com',
@@ -480,18 +390,6 @@ it('配列キー存在チェックの in_array_keys ルールを使えること'
 
 // Laravel 12.17 - AsUri キャスト - URL文字列をUriオブジェクトとして扱う
 it('URL オブジェクトへのモデルキャストができること', function () {
-    // インメモリテーブルを作成
-    Schema::create('test_users', function (Blueprint $table) {
-        $table->id();
-        $table->string('name');
-        $table->string('email');
-        $table->boolean('is_active')->default(true);
-        $table->string('status')->default('active');
-        $table->json('metadata')->nullable();
-        $table->string('profile_url')->nullable();
-        $table->timestamps();
-    });
-
     $user = TestUser::create([
         'name' => 'Test User',
         'email' => 'test@example.com', 
@@ -507,5 +405,34 @@ it('URL オブジェクトへのモデルキャストができること', functi
     $user->save();
     $raw = $user->getAttributes()['profile_url'];
     expect($raw)->toBe('https://laravel.com/docs');
+});
+
+
+// Laravel 12.18 - Str::encrypt/decrypt - 文字列処理チェーンで暗号化
+it('文字列の暗号化・復号ヘルパーを使えること', function () {
+    // アプリケーションキーを一時的に設定
+    config(['app.key' => 'base64:' . base64_encode(random_bytes(32))]);
+    
+    $original = 'secret-api-token';
+    $encrypted = Str::of($original)->encrypt();   // 暗号化
+    expect($encrypted->toString())->not->toBe($original);
+
+    $decrypted = $encrypted->decrypt();          // 復号化
+    expect($decrypted->toString())->toBe($original);
+});
+
+// Laravel 12.18 - Str::encrypt/decrypt (fluent) - Fluent文字列での暗号化チェーン
+it('Fluent文字列での暗号化・復号チェーンができること', function () {
+    // アプリケーションキーを一時的に設定
+    config(['app.key' => 'base64:' . base64_encode(random_bytes(32))]);
+    
+    // Fluent文字列チェーンでの暗号化・復号
+    $encrypted = Str::of('secret')->encrypt();
+    $plain = Str::of($encrypted)->decrypt();
+    
+    expect($plain->toString())->toBe('secret');
+    
+    // 暗号化された文字列は元の文字列と異なることを確認
+    expect($encrypted->toString())->not->toBe('secret');
 });
 
