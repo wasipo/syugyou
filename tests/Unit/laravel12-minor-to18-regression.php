@@ -235,12 +235,10 @@ it('関連の自動ロードができること', function () {
     
     DB::flushQueryLog();
     
-    // withRelationshipAutoloadingを使用
-    $postsWithAutoloading = TestPost::all();
-    // Laravel 12.8の機能をシミュレート（実際のコレクションではwithメソッドを使用）
-    $postsWithAutoloading->load('testUser');
+    // Laravel 12.8のwithRelationshipAutoloadingを使用
+    $postsWithAutoloading = TestPost::all()->withRelationshipAutoloading();
     foreach ($postsWithAutoloading as $post) {
-        $userName = $post->testUser->name; // 追加のクエリは発行されない
+        $userName = $post->testUser->name; // 自動的にloadMissingされる
     }
     $autoloadQueryCount = count(DB::getQueryLog());
     
