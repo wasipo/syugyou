@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+namespace Tests\Unit;
+
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Cache;
@@ -18,13 +20,12 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Fluent;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\Rule;
-use Illuminate\Testing\TestResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\StrayRequestException;
 use Illuminate\Events\CallQueuedListener;
 
-uses(Tests\TestCase::class);
+uses(\Tests\TestCase::class);
 
 beforeEach(function () {
     Schema::create('test_users', function (Blueprint $table) {
@@ -221,9 +222,13 @@ test('TestResponse::assertClientError でクライアントエラーを検証で
 
 // v12.15.0 - TestResponse::assertRedirectToAction
 test('アクション文字列へのリダイレクトを検証', function () {
-    Route::get('/target', 'TestController@index')->name('target');
-    Route::get('/jump', fn () => redirect()->action('TestController@index'));
-    $this->get('/jump')->assertRedirectToAction('TestController@index');
+    $controller = new class {
+        public function index(): string { return 'test'; }
+    };
+    $controllerClass = get_class($controller);
+    Route::get('/target', $controllerClass.'@index')->name('target');
+    Route::get('/jump', fn () => redirect()->action($controllerClass.'@index'));
+    $this->get('/jump')->assertRedirectToAction($controllerClass.'@index');
 });
 
 // v12.16.0 - Arr::hasAll
@@ -265,11 +270,3 @@ test('TestResponse::assertRedirectBackWithErrors でエラー付きリダイレ�
     $response = $this->withHeader('referer', 'https://example.com/form')->post('/submit');
     $response->assertRedirectBackWithErrors(['name']);
 });
-
-class TestController
-{
-    public function index()
-    {
-        return 'test';
-    }
-}
